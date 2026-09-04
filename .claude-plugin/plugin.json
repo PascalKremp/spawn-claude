@@ -1,6 +1,6 @@
 {
   "name": "spawn-claude",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Spawn background Claude Code sessions in a detached terminal, then read, steer, wait on and close them. Works with tmux anywhere, cmux or iTerm2 where available.",
   "author": { "name": "Pascal Kremp", "url": "https://github.com/PascalKremp" },
   "homepage": "https://github.com/PascalKremp/spawn-claude",

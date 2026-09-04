@@ -72,16 +72,31 @@ FAKE
   ref=$(SPAWN_DRY_RUN=0 "$S" --terminal tmux "$NAME" "hello prompt" "$WORK" 2>/dev/null \
         | sed -n 's/^✓ spawned \(tmux:[^ ]*\).*/\1/p')
   assert_eq "tmux:$SESS" "$ref" "live spawn prints the tmux ref"
-  sleep 2
 
-  screen=$(SPAWN_DRY_RUN=0 "$S" read "$NAME" 2>/dev/null)
+  # Poll rather than sleeping a fixed amount. The command is TYPED into the
+  # pane, so there is a gap before the shell runs it; a fixed sleep made this
+  # flaky (the capture caught the echoed command line instead of the stub's
+  # output, and the command line still carries the shell quoting the
+  # assertions below do not expect).
+  wait_for_screen() {
+    _needle="$1"; _tries=0
+    while [ "$_tries" -lt 30 ]; do
+      _scr=$(SPAWN_DRY_RUN=0 "$S" read "$NAME" 2>/dev/null)
+      case "$_scr" in *"$_needle"*) printf '%s' "$_scr"; return 0 ;; esac
+      sleep 1
+      _tries=$((_tries + 1))
+    done
+    printf '%s' "$_scr"
+    return 1
+  }
+
+  screen=$(wait_for_screen "STUB-CLAUDE-UP")
   assert_contains "$screen" "STUB-CLAUDE-UP" "read captures the spawned pane"
   assert_contains "$screen" "--rc"           "the session was launched with --rc"
   assert_contains "$screen" "--name $NAME"   "the session carries its task name"
 
   SPAWN_DRY_RUN=0 "$S" tell "$NAME" "ping-from-test" >/dev/null 2>&1
-  sleep 2
-  screen=$(SPAWN_DRY_RUN=0 "$S" read "$NAME" 2>/dev/null)
+  screen=$(wait_for_screen "ECHO:ping-from-test")
   assert_contains "$screen" "ECHO:ping-from-test" "tell delivers text into the session"
 
   listing=$(SPAWN_DRY_RUN=0 "$S" list 2>/dev/null)
