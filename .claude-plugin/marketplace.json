@@ -1,0 +1,17 @@
+{
+  "name": "spawn-claude",
+  "owner": { "name": "Pascal Kremp", "url": "https://github.com/PascalKremp" },
+  "metadata": {
+    "description": "Background Claude Code sessions you can drive, for Claude Code.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "spawn-claude",
+      "description": "Spawn background Claude Code sessions in a detached terminal, then read, steer, wait on and close them.",
+      "version": "0.1.0",
+      "author": { "name": "Pascal Kremp" },
+      "source": "./"
+    }
+  ]
+}
