@@ -29,6 +29,13 @@ assert_contains() {
   esac
 }
 
+assert_not_contains() {
+  case "$1" in
+    *"$2"*) _fail "$3" "not to contain: $2" "$1" ;;
+    *)      _pass "$3" ;;
+  esac
+}
+
 # assert_exit <expected-code> <label> -- <cmd...>
 assert_exit() {
   expected="$1"; label="$2"; shift 3

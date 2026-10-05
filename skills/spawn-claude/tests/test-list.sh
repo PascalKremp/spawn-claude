@@ -130,6 +130,10 @@ case "$out" in
   *) _pass "list drops a row whose workspace is gone" ;;
 esac
 
+# `list` now prunes dead rows from the registry file, so the first call above
+# removed closed-task for good; re-seed it for the failure case below.
+printf '%s\t%s\t%s\t%s\t%s\n' "2026-08-10T00:00:01Z" "closed-task"   "workspace:12" "window:2" "/tmp/other"        >> "$SPAWN_REGISTRY"
+
 # A FAILED `cmux workspace list` is not evidence that anything is gone. It must
 # warn and keep every row, never print a bare header and exit 0 — that silent
 # empty table is what makes a running session look finished.
