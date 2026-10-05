@@ -119,12 +119,63 @@ out=$(spawn_brainc "workspace:30" "" 3)
 assert_eq "2" "$(reg_list | wc -l | tr -d ' ')" "an unreachable cmux prunes NOTHING (rc 2 is not 'absent')"
 assert_contains "$(reg_list)" "workspace:10" "the pre-existing row survives a failed reconciliation call"
 
-# Pruning only ever touches the name being spawned.
+# Spawn also prunes OTHER names' rows whose workspace is definitely gone: a
+# registry row for a closed workspace is a lie that cmux can make dangerous by
+# reusing the ref (see the workspace:72 case below).
 rm -f "$SPAWN_REGISTRY"
 reg_append "brainc"      "workspace:10" "window:1" "/Users/x/vault"
 reg_append "other-task"  "workspace:11" "window:1" "/Users/x/proj"
-out=$(spawn_brainc "workspace:30" "workspace:30  brainc  /Users/x/vault")
-assert_contains "$(reg_list)" "other-task" "a different name's dead row is left alone (pruning is scoped to the spawned name)"
+reg_append "live-task"   "workspace:12" "window:1" "/Users/x/live"
+out=$(spawn_brainc "workspace:30" "$(printf 'workspace:12  live-task\nworkspace:30  brainc')")
+assert_not_contains "$(reg_list)" "other-task" "a different name's dead row is pruned on spawn"
+assert_contains "$(reg_list)" "live-task" "a different name's LIVE row is kept"
+
+# The workspace:72 bug: cmux reused a closed workspace's ref for a new spawn,
+# leaving two rows with the same ref. The new spawn must evict the old row
+# even though the ref is "live" (it now belongs to the new session).
+rm -f "$SPAWN_REGISTRY"
+reg_append "triage-oldest-100" "workspace:72" "window:1" "/Users/x/old"
+out=$(spawn_brainc "workspace:72" "workspace:72  brainc")
+assert_eq "1" "$(reg_list | wc -l | tr -d ' ')" "a reused ref leaves exactly one row"
+assert_eq "workspace:72" "$(reg_resolve brainc)" "the surviving row is the new spawn"
+assert_not_contains "$(reg_list)" "triage-oldest-100" "the stale row sharing the ref is removed on register"
+
+# Title mismatch: the ref exists in cmux but belongs to a differently named
+# workspace, so the row is stale. Pruned by spawn ...
+rm -f "$SPAWN_REGISTRY"
+reg_append "triage-oldest-100" "workspace:72" "window:1" "/Users/x/old"
+reg_append "keeper" "workspace:40" "window:1" "/Users/x/k"
+out=$(spawn_brainc "workspace:30" "$(printf 'workspace:72  dns-tischlein-pro\n* workspace:40  keeper  [selected]\nworkspace:30  brainc')")
+assert_not_contains "$(reg_list)" "triage-oldest-100" "spawn prunes a row whose ref now belongs to a differently named workspace"
+assert_contains "$(reg_list)" "keeper" "a row whose live title matches (with decorations) is kept"
+
+# ... and by list, which rewrites the registry rather than merely hiding rows.
+rm -f "$SPAWN_REGISTRY"
+reg_append "triage-oldest-100" "workspace:72" "window:1" "/Users/x/old"
+reg_append "dns-tischlein-pro" "workspace:72" "window:1" "/Users/x/dns"
+out=$(env HOME="$FAKE_HOME" CMUX_SOCKET_PATH=fake CMUX_CLAUDE_HOOK_CMUX_BIN="$FAKE_CMUX" \
+      CMUX_BUNDLED_CLI_PATH=/nonexistent-cmux SPAWN_REGISTRY="$SPAWN_REGISTRY" SPAWN_DRY_RUN=0 \
+      FAKE_WS_LIST="workspace:72  dns-tischlein-pro" "$S" list 2>&1)
+assert_not_contains "$out" "triage-oldest-100" "list does not show a name-mismatched duplicate-ref row"
+assert_contains "$out" "dns-tischlein-pro" "list shows the row matching the live title"
+assert_not_contains "$(reg_list)" "triage-oldest-100" "list prunes the stale row from the registry file"
+
+# A failed list call prunes nothing.
+rm -f "$SPAWN_REGISTRY"
+reg_append "triage-oldest-100" "workspace:72" "window:1" "/Users/x/old"
+out=$(env HOME="$FAKE_HOME" CMUX_SOCKET_PATH=fake CMUX_CLAUDE_HOOK_CMUX_BIN="$FAKE_CMUX" \
+      CMUX_BUNDLED_CLI_PATH=/nonexistent-cmux SPAWN_REGISTRY="$SPAWN_REGISTRY" SPAWN_DRY_RUN=0 \
+      FAKE_WS_LIST_EXIT=3 "$S" list 2>&1)
+assert_contains "$(reg_list)" "triage-oldest-100" "list on an unreachable cmux leaves the registry untouched"
+
+# reg_drop_ref removes every row with the ref, whatever the name.
+rm -f "$SPAWN_REGISTRY"
+reg_append "a" "workspace:5" "window:1" "/x"
+reg_append "b" "workspace:5" "window:1" "/x"
+reg_append "c" "workspace:6" "window:1" "/x"
+reg_drop_ref "workspace:5"
+assert_eq "1" "$(reg_list | wc -l | tr -d ' ')" "reg_drop_ref removes all rows with that ref"
+assert_contains "$(reg_list)" "workspace:6" "reg_drop_ref leaves other refs"
 
 rm -rf "$FAKE_CMUX" "$FAKE_HOME" "$SPAWN_REGISTRY"
 report

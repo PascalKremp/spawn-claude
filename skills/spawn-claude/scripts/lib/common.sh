@@ -78,12 +78,15 @@ sc_rc_advisory() {
   ! pgrep -f "claude daemon" >/dev/null 2>&1
 }
 
-# sc_build_claude_cmd <invocation> <name> <prompt> <model> <resume_id> <do_continue> <fork>
+# sc_build_claude_cmd <invocation> <name> <prompt> <model> <resume_id> <do_continue> <fork> [prompt_from_var]
 # <invocation> is emitted verbatim: an already-quoted absolute path for iTerm,
 # or the bare word `claude` for cmux (so the cmux wrapper shim intercepts it).
+# With prompt_from_var=1 the prompt is emitted as "$_sc_prompt" (read from a
+# file by the launcher, see sc_make_launcher) instead of being inlined.
+# A prompt starting with '-' is preceded by `--` so it is never an option.
 sc_build_claude_cmd() {
   _inv="$1"; _name="$2"; _prompt="$3"; _model="$4"
-  _resume="$5"; _continue="$6"; _fork="$7"
+  _resume="$5"; _continue="$6"; _fork="$7"; _pvar="${8:-0}"
 
   _cmd="$_inv --rc --name '$(sc_shell_escape "$_name")' --dangerously-skip-permissions"
   if [ -n "$_model" ]; then
@@ -98,7 +101,69 @@ sc_build_claude_cmd() {
     _cmd="$_cmd --fork-session"
   fi
   if [ -n "$_prompt" ]; then
-    _cmd="$_cmd '$(sc_shell_escape "$_prompt")'"
+    case "$_prompt" in -*) _cmd="$_cmd --" ;; esac
+    if [ "$_pvar" = "1" ]; then
+      _cmd="$_cmd \"\$_sc_prompt\""
+    else
+      _cmd="$_cmd '$(sc_shell_escape "$_prompt")'"
+    fi
   fi
   printf '%s' "$_cmd"
+}
+
+# ---------------------------------------------------------------------------
+# Launcher files — NEVER type long content into a pty.
+#
+# cmux (`workspace create --command`), tmux (`send-keys`) and iTerm all deliver
+# the command by typing it into the new shell. While that shell is still
+# starting, the pty is in canonical mode and the tty line discipline truncates
+# an input line at MAX_CANON (1024 bytes on macOS): a ~1.5K prompt arrived cut
+# off mid-prompt with an unterminated quote and never ran. So the prompt goes
+# into a private temp file, the command into a launcher, and only a short
+# `. '<launcher>'` line is typed.
+#
+# The launcher is SOURCED (not exec'd) by the interactive shell: the shell
+# survives claude exiting (scrollback stays readable) and, on cmux, the bare
+# `claude` still resolves through cmux's shell function/shim/wrapper.
+
+# sc_launcher_template <name> — the path pattern, for dry-run display.
+sc_launcher_template() {
+  _lt_safe=$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/-/g' | cut -c1-40)
+  printf '%s/spawn-claude-%s-XXXXXX' "${TMPDIR:-/tmp}" "$_lt_safe"
+}
+
+# sc_make_launcher <name> <prompt> <invocation> <model> <resume> <continue> <fork>
+# Sets SC_TYPED_CMD (the short line to type), SC_LAUNCHER and SC_PROMPT_FILE.
+# Call it directly, not in $(...), so the variables survive. Exit 1 on failure.
+sc_make_launcher() {
+  _ml_name="$1"; _ml_prompt="$2"; _ml_inv="$3"
+  SC_LAUNCHER=""; SC_PROMPT_FILE=""; SC_TYPED_CMD=""
+  _ml_tpl=$(sc_launcher_template "$_ml_name")
+  umask 077
+  SC_LAUNCHER=$(mktemp "$_ml_tpl") || return 1
+  _ml_pvar=0
+  if [ -n "$_ml_prompt" ]; then
+    SC_PROMPT_FILE=$(mktemp "$_ml_tpl") || { rm -f "$SC_LAUNCHER"; return 1; }
+    printf '%s' "$_ml_prompt" > "$SC_PROMPT_FILE" || { rm -f "$SC_LAUNCHER" "$SC_PROMPT_FILE"; return 1; }
+    _ml_pvar=1
+  fi
+  _ml_cmd=$(sc_build_claude_cmd "$_ml_inv" "$_ml_name" "$_ml_prompt" "$4" "$5" "$6" "$7" "$_ml_pvar")
+  {
+    printf '# spawn-claude launcher (self-deleting)\n'
+    if [ -n "$SC_PROMPT_FILE" ]; then
+      # `; printf x` + strip keeps trailing newlines, which $(...) would eat.
+      printf "_sc_prompt=\$(cat '%s'; printf x); _sc_prompt=\${_sc_prompt%%x}\n" "$(sc_shell_escape "$SC_PROMPT_FILE")"
+      printf "rm -f '%s' '%s'\n" "$(sc_shell_escape "$SC_PROMPT_FILE")" "$(sc_shell_escape "$SC_LAUNCHER")"
+    else
+      printf "rm -f '%s'\n" "$(sc_shell_escape "$SC_LAUNCHER")"
+    fi
+    printf '%s\n' "$_ml_cmd"
+    printf 'unset _sc_prompt\n'
+  } > "$SC_LAUNCHER" || { rm -f "$SC_LAUNCHER" "$SC_PROMPT_FILE"; return 1; }
+  chmod 700 "$SC_LAUNCHER"
+  SC_TYPED_CMD=". '$(sc_shell_escape "$SC_LAUNCHER")'"
+}
+
+sc_launcher_cleanup() {
+  rm -f "${SC_LAUNCHER:-}" "${SC_PROMPT_FILE:-}" 2>/dev/null || true
 }

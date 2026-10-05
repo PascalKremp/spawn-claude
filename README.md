@@ -89,6 +89,10 @@ That's reported honestly rather than faked with a screen-scrape.
   session doesn't block on Claude's "Quick safety check" prompt.
 - tmux sessions are named `spawn-<task>`; attach with `tmux attach -t spawn-<task>`.
 - The registry of spawned sessions lives in `~/.local/state/spawn-claude/spawns.tsv`.
+- Long prompts are fine: on cmux/tmux the prompt goes into a private temp file and only a short
+  `. <launcher>` line is typed (the tty caps typed lines at 1024 bytes, which used to cut long
+  prompts off). The launcher deletes its temp files once `claude` starts.
+- `list`/`spawn` prune registry rows for closed workspaces and for refs cmux has reused.
 
 ## Tests
 

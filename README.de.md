@@ -93,6 +93,10 @@ Das wird ehrlich so berichtet, statt es mit einem Auslesen des Bildschirms zu fi
 - tmux-Sessions heißen `spawn-<task>`; verbinden mit `tmux attach -t spawn-<task>`.
 - Das Verzeichnis der gestarteten Sessions liegt in
   `~/.local/state/spawn-claude/spawns.tsv`.
+- Lange Prompts funktionieren: Bei cmux/tmux landet der Prompt in einer privaten Temp-Datei und
+  nur eine kurze `. <launcher>`-Zeile wird getippt (das tty kappt getippte Zeilen bei 1024 Bytes,
+  was lange Prompts früher abschnitt). Der Launcher löscht seine Temp-Dateien, sobald `claude` startet.
+- `list`/`spawn` bereinigen Registry-Einträge geschlossener Workspaces und wiederverwendeter cmux-Refs.
 
 ## Tests
 

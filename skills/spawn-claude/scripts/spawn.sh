@@ -91,8 +91,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/iterm.sh"
 . "$SCRIPT_DIR/lib/tmux.sh"
 
-# prune_stale_rows <name> — drop this name's registry rows whose cmux
-# workspace no longer exists. Exit 0 on success (including "nothing to do"),
+# prune_stale_rows <name> — drop registry rows whose cmux workspace no longer
+# exists or whose live title no longer matches the row's name. Exit 0 on success (including "nothing to do"),
 # 1 if the registry rewrite failed.
 #
 # Why: the registry is append-only and `close` never removes its row, and
@@ -110,20 +110,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # sessions sharing a name therefore still collide, and that ambiguous-target
 # error is the correct outcome rather than something to silently resolve.
 prune_stale_rows() {
-  _pname="$1"
+  # <name> is kept for call-site compatibility; pruning now covers EVERY name:
+  # cmux reuses the refs of closed workspaces, so a dead row of any task can
+  # end up sharing a ref with a live session of another (the workspace:72 bug).
   _wl=$(cmux_ws_list) || return 0   # call failed: nothing is definite, prune nothing
-  _stale=()
+  _stale_n=(); _stale_r=()
   # Here-doc, not a pipe: the loop must run in THIS shell or the collected
-  # refs vanish with the subshell.
+  # rows vanish with the subshell.
   while IFS="$(printf '\t')" read -r _ts _n _ws _win _cwd; do
-    [ "$_n" = "$_pname" ] || continue
-    if cmux_ws_match "$_wl" "$_ws"; then continue; fi
-    _stale+=("$_ws")
-  done <<EOF
+    case "$_ws" in workspace:*) ;; *) continue ;; esac
+    # Live title of whatever owns this ref now (first listing line carrying it
+    # as a whitespace-delimited field). awk reads to EOF: no SIGPIPE.
+    _line=$(printf '%s\n' "$_wl" | awk -v r="$_ws" '{for(i=1;i<=NF;i++) if($i==r && !f){f=1; l=$0}} END{print l}')
+    if [ -z "$_line" ]; then
+      _stale_n+=("$_n"); _stale_r+=("$_ws")   # workspace is gone
+      continue
+    fi
+    # Ref exists but belongs to a differently named workspace: cmux reused it.
+    case "$_line" in *"$_n"*) ;; *) _stale_n+=("$_n"); _stale_r+=("$_ws") ;; esac
+  done <<REGEOF
 $(reg_list)
-EOF
-  [ ${#_stale[@]} -gt 0 ] || return 0
-  reg_drop "$_pname" "${_stale[@]}"
+REGEOF
+  _rc=0
+  _i=0
+  while [ "$_i" -lt "${#_stale_r[@]}" ]; do
+    reg_drop "${_stale_n[$_i]}" "${_stale_r[$_i]}" || _rc=1
+    _i=$((_i + 1))
+  done
+  return "$_rc"
 }
 
 cmd_spawn() {
@@ -271,7 +285,23 @@ if [[ "$dry_run" = 1 ]]; then
     echo "tmux:    new-session -d -s '$(tmux_session_name "$name")' -c '$cwd' + send-keys <cmd>"
   fi
   echo "command: $claude_cmd"
+  if [[ "$backend" != iterm ]]; then
+    # Never typed in full: the prompt goes to a private temp file and only this
+    # short line is typed into the shell (tty input lines are capped at 1024).
+    echo "typed:   . '$(sc_launcher_template "$name")'   # launcher reads the prompt from a sibling temp file"
+  fi
   exit 0
+fi
+
+# cmux/tmux TYPE the command into the new shell, which truncates at 1024 bytes
+# (see sc_make_launcher). Type only a short `. <launcher>` line instead. iTerm
+# already runs a temp script rather than typing, so it keeps the full command.
+typed_cmd="$claude_cmd"
+if [[ "$backend" != iterm ]]; then
+  if [[ "$backend" = cmux ]]; then _inv="claude"; else _inv="'$(sc_shell_escape "$claude_bin")'"; fi
+  sc_make_launcher "$name" "$prompt" "$_inv" "$model" "$resume_id" "$do_continue" "$fork" \
+    || { echo "Error: could not create the launcher temp files in ${TMPDIR:-/tmp}" >&2; exit 1; }
+  typed_cmd="$SC_TYPED_CMD"
 fi
 
 if [[ "$backend" = cmux ]]; then
@@ -281,7 +311,7 @@ if [[ "$backend" = cmux ]]; then
   # issue-fixer workspace was labelled with its entire prompt). Collapse
   # newlines to spaces first, then truncate the single resulting line.
   desc=$(printf '%s' "${prompt:-$name}" | tr '\n' ' ' | cut -c1-120)
-  ws=$(cmux_spawn "$name" "$desc" "$cwd" "$claude_cmd") || exit 1
+  ws=$(cmux_spawn "$name" "$desc" "$cwd" "$typed_cmd") || { sc_launcher_cleanup; exit 1; }
   # `|| true` is load-bearing: by this point the workspace exists and the
   # claude command was already sent, so this best-effort window-ref scrape
   # must never be able to abort the script under set -e/pipefail. Without it,
@@ -305,6 +335,7 @@ if [[ "$backend" = cmux ]]; then
   # would be a spawn we merely failed to *log*, not a failed spawn. Warn and
   # keep going; the ref printed below still works even if `list`/`tell`/
   # `close` can no longer resolve it by name.
+  reg_drop_ref "$ws" || true   # a row sharing this ref is necessarily stale
   if ! reg_append "$name" "$ws" "${win:-window:?}" "$cwd"; then
     echo "⚠ spawned $ws but failed to record it in the registry — 'list'/'tell $name'/'close $name' won't find it by name; use the ref '$ws' directly." >&2
   fi
@@ -320,13 +351,14 @@ if [[ "$backend" = cmux ]]; then
 elif [[ "$backend" = tmux ]]; then
   # tmux sessions are detached and inspectable, so — unlike iTerm — they get a
   # registry row and support the same read/tell/key/wait/close verbs as cmux.
-  ws=$(tmux_spawn "$name" "${prompt:-$name}" "$cwd" "$claude_cmd") || exit 1
+  ws=$(tmux_spawn "$name" "${prompt:-$name}" "$cwd" "$typed_cmd") || { sc_launcher_cleanup; exit 1; }
   # Same non-fatal rule as the cmux path: the session is already live, so a
   # failure to tidy or write the registry must not abort and orphan it.
   if ! prune_stale_rows "$name"; then
     echo "⚠ could not prune stale registry rows for \"$name\" — 'tell $name'/'close $name'" >&2
     echo "  may report an ambiguous target; use the ref '$ws' directly." >&2
   fi
+  reg_drop_ref "$ws" || true
   if ! reg_append "$name" "$ws" "tmux:-" "$cwd"; then
     echo "⚠ spawned $ws but failed to record it in the registry — use the ref '$ws' directly." >&2
   fi
@@ -481,6 +513,9 @@ cmd_list() {
     echo "⚠ could not reach cmux to reconcile — every registered row is shown below," >&2
     echo "  including any whose workspace has since been closed. Re-run when cmux answers." >&2
   fi
+  # Rewrite the registry, not just hide rows: drop rows whose workspace is gone
+  # or whose live title no longer matches (reused ref). Nothing on a failed call.
+  if [ "$_wl_rc" -eq 0 ]; then prune_stale_rows "" || true; fi
   printf '%-14s %-24s %s\n' "REF" "NAME" "CWD"
   reg_list | while IFS="$(printf '\t')" read -r ts name ws win cwd; do
     # Reconcile: drop rows whose workspace is DEFINITELY gone. On a failed

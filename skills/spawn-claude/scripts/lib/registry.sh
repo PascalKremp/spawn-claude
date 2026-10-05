@@ -67,6 +67,17 @@ reg_drop() {
   mv "$_tmp" "$_rp" || { rm -f "$_tmp"; return 1; }
 }
 
+# reg_drop_ref <ref> — remove every row with this workspace ref, whatever its
+# name. Used when registering a new spawn: cmux reuses refs of closed
+# workspaces, so an older row with the same ref is necessarily stale.
+reg_drop_ref() {
+  _rp=$(reg_path)
+  [ -f "$_rp" ] || return 0
+  _tmp="$_rp.tmp.$$"
+  awk -F'\t' -v r="$1" '$3 != r' "$_rp" > "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+  mv "$_tmp" "$_rp" || { rm -f "$_tmp"; return 1; }
+}
+
 # reg_resolve <target> — target is a task name or a raw workspace ref.
 # exit 0 = printed a ref, 2 = not found, 3 = ambiguous.
 reg_resolve() {
