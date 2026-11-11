@@ -26,6 +26,7 @@ Options (continue an existing conversation instead of starting fresh):
 - `--fork` — on resume, branch into a **new** session id instead of writing back into the original (`claude --fork-session`). Use to explore an alternative without polluting the source session.
 - `--cwd <dir>` — working directory (alternative to the positional `[cwd]`).
 - `-m, --model <model>` — model for the spawned session (e.g. `sonnet`, `opus`, `haiku`).
+- `--chrome` — enable Claude in Chrome in the spawned session (`claude --chrome`); same as `SPAWN_CHROME=1`.
 - `--terminal cmux|iterm|tmux|auto` — force a backend (see Backends below). Default `auto`.
 - `--dry-run` — print the resolved backend, `cwd`, and the exact command(s) that would run, then exit without touching cmux, iTerm, or `~/.claude.json`. Use to verify before launching.
 - `--` — end of options; everything after is positional (use when a prompt starts with `-`).

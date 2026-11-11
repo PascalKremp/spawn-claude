@@ -66,7 +66,7 @@ spawn.sh wait  <name> --timeout 600   # blockieren, bis sie fertig ist
 spawn.sh close <name>                 # beenden
 ```
 
-Optionen: `--resume <id>`, `--continue`, `--fork`, `--model <model>`, `--cwd <dir>`,
+Optionen: `--resume <id>`, `--continue`, `--fork`, `--model <model>`, `--chrome`, `--cwd <dir>`,
 `--terminal <backend>`, `--dry-run`.
 
 Sessions starten mit `--dangerously-skip-permissions` — genau das ist der Zweck — starte

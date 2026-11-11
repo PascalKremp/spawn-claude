@@ -18,6 +18,7 @@
 #                               writing back into the original (claude --fork-session)
 #       --cwd <dir>             Working directory (alternative to the positional form)
 #   -m, --model <model>         Model for the spawned session (e.g. sonnet, opus, haiku)
+#       --chrome                Enable Claude in Chrome in the spawned session (claude --chrome)
 #       --terminal <t>          Backend: cmux, iterm, or auto (default: auto — prefers
 #                               cmux when reachable, else iTerm; see SPAWN_TERMINAL below)
 #       --                      End of options; remaining args are positional
@@ -35,6 +36,7 @@
 #                      (or unset/empty) goes live; ANY other value —
 #                      yes, true, on, 2, garbage — is treated as dry-run.
 #   SPAWN_TERMINAL     Same as --terminal; the flag wins if both are given.
+#   SPAWN_CHROME=1     Same as --chrome.
 #   SPAWN_NO_VERIFY=1  Skip the post-launch check (process-alive on iTerm,
 #                      RC-daemon health advisory on both). Best-effort, never fatal.
 #   SPAWN_WAIT_INTERVAL  Poll interval in seconds for `wait` (default 5).
@@ -176,6 +178,8 @@ while [[ $# -gt 0 ]]; do
       terminal="$2"; shift 2 ;;
     --terminal=*)
       terminal="${1#*=}"; shift ;;
+    --chrome)
+      export SPAWN_CHROME=1; shift ;;
     --dry-run)
       dry_run=1; shift ;;
     --)
