@@ -84,11 +84,15 @@ sc_rc_advisory() {
 # With prompt_from_var=1 the prompt is emitted as "$_sc_prompt" (read from a
 # file by the launcher, see sc_make_launcher) instead of being inlined.
 # A prompt starting with '-' is preceded by `--` so it is never an option.
+# SPAWN_CHROME=1 in the environment adds --chrome (Claude in Chrome integration).
 sc_build_claude_cmd() {
   _inv="$1"; _name="$2"; _prompt="$3"; _model="$4"
   _resume="$5"; _continue="$6"; _fork="$7"; _pvar="${8:-0}"
 
   _cmd="$_inv --rc --name '$(sc_shell_escape "$_name")' --dangerously-skip-permissions"
+  if [ "${SPAWN_CHROME:-0}" = "1" ]; then
+    _cmd="$_cmd --chrome"
+  fi
   if [ -n "$_model" ]; then
     _cmd="$_cmd --model '$(sc_shell_escape "$_model")'"
   fi

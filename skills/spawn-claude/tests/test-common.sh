@@ -21,4 +21,10 @@ assert_contains "$cmd" "--fork-session" "fork flag"
 cmd=$(sc_build_claude_cmd "claude" "t" "" "" "" "1" "0")
 assert_contains "$cmd" "--continue" "continue flag"
 
+cmd=$(SPAWN_CHROME=1 sc_build_claude_cmd "claude" "t" "go" "" "" "0" "0")
+assert_eq "claude --rc --name 't' --dangerously-skip-permissions --chrome 'go'" "$cmd" "SPAWN_CHROME=1 adds --chrome before the prompt"
+
+cmd=$(SPAWN_CHROME=0 sc_build_claude_cmd "claude" "t" "" "" "" "0" "0")
+assert_eq "claude --rc --name 't' --dangerously-skip-permissions" "$cmd" "SPAWN_CHROME=0 leaves --chrome out"
+
 report

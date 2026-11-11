@@ -65,7 +65,7 @@ spawn.sh wait  <name> --timeout 600   # block until it's done
 spawn.sh close <name>                 # shut it down
 ```
 
-Options: `--resume <id>`, `--continue`, `--fork`, `--model <model>`, `--cwd <dir>`,
+Options: `--resume <id>`, `--continue`, `--fork`, `--model <model>`, `--chrome`, `--cwd <dir>`,
 `--terminal <backend>`, `--dry-run`.
 
 Sessions launch with `--dangerously-skip-permissions` — the point is to fire and forget —
